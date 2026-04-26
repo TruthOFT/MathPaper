@@ -1,121 +1,106 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
+import { useEffect, useRef, useState } from 'react'
+import { MathfieldElement } from 'mathlive'
+import 'mathlive/fonts.css'
 import './App.css'
+const initialLatexValue = '\\sqrt{3x-1}+(1+x)^2'
 
 function App() {
-  const [count, setCount] = useState(0)
+    const containerRef = useRef<HTMLDivElement | null>(null)
+    const mathfieldRef = useRef<MathfieldElement | null>(null)
+    const [latexValue, setLatexValue] = useState(initialLatexValue)
 
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    useEffect(() => {
+        if (!containerRef.current) {
+            return
+        }
 
-      <div className="ticks"></div>
+        const mathfield = new MathfieldElement({
+            smartFence: true,
+            smartMode: false,
+        })
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+        mathfield.className = 'math-editor'
+        mathfield.value = initialLatexValue
+        mathfield.setAttribute('math-virtual-keyboard-policy', 'auto')
+        mathfield.setAttribute('virtual-keyboard-mode', 'manual')
+        mathfield.setAttribute('placeholder', '请输入数学公式')
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+        const handleInput = (event: Event) => {
+            const target = event.target as MathfieldElement
+            setLatexValue(target.value)
+        }
+
+        mathfield.addEventListener('input', handleInput)
+        containerRef.current.replaceChildren(mathfield)
+        mathfieldRef.current = mathfield
+
+        return () => {
+            mathfield.removeEventListener('input', handleInput)
+            mathfield.remove()
+            mathfieldRef.current = null
+        }
+    }, [])
+
+    useEffect(() => {
+        const mathfield = mathfieldRef.current
+        if (!mathfield || mathfield.value === latexValue) {
+            return
+        }
+
+        mathfield.value = latexValue
+    }, [latexValue])
+
+    const fillExample = (value: string) => {
+        setLatexValue(value)
+        mathfieldRef.current?.focus()
+    }
+
+    return (
+        <main className="page">
+            <section className="panel">
+                <div className="panel-header">
+                    <div>
+                        <p className="eyebrow">mathlive 接入示例</p>
+                        <h1>公式输入框现在可以正常使用了</h1>
+                    </div>
+                    <p className="desc">
+                        前端保存 LaTeX，后端再把表达式送给 Symja 做等价判断。
+                    </p>
+                </div>
+
+                <div className="editor-card">
+                    <label className="label">数学公式输入</label>
+                    <div ref={containerRef} className="mathfield-host" />
+                    <div className="toolbar">
+                        <button type="button" onClick={() => fillExample('\\frac{1}{2}x^2+3x-5')}>
+                            二次式
+                        </button>
+                        <button type="button" onClick={() => fillExample('\\sqrt{x+1}=3')}>
+                            根式方程
+                        </button>
+                        <button type="button" onClick={() => fillExample('\\begin{pmatrix}1&2\\\\3&4\\end{pmatrix}')}>
+                            矩阵
+                        </button>
+                    </div>
+                </div>
+
+                <div className="preview-grid">
+                    <section className="preview-card">
+                        <h2>LaTeX 输出</h2>
+                        <pre>{latexValue}</pre>
+                    </section>
+                    <section className="preview-card">
+                        <h2>接入说明</h2>
+                        <ul>
+                            <li>不要把 `Mathfield` 当 React 组件直接渲染。</li>
+                            <li>React 里建议通过 `MathfieldElement` 或 `math-field` 自定义元素接入。</li>
+                            <li>提交时保存 `latexValue`，批改时再转换为 Symja 可识别表达式。</li>
+                        </ul>
+                    </section>
+                </div>
+            </section>
+        </main>
+    )
 }
 
 export default App
