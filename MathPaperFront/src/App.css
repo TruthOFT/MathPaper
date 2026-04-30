@@ -1,166 +1,21 @@
-.page {
-    min-height: 100vh;
-    padding: 40px 20px;
-    background:
-        radial-gradient(circle at top left, rgba(30, 144, 255, 0.18), transparent 32%),
-        linear-gradient(180deg, #f7fbff 0%, #eef4ff 100%);
-    color: #162033;
-}
-
-.panel {
-    width: min(960px, 100%);
-    margin: 0 auto;
-    padding: 32px;
-    border: 1px solid rgba(72, 106, 166, 0.14);
-    border-radius: 24px;
-    background: rgba(255, 255, 255, 0.88);
-    box-shadow: 0 24px 80px rgba(31, 66, 135, 0.12);
-    backdrop-filter: blur(12px);
-}
-
-.panel-header {
-    display: flex;
-    justify-content: space-between;
-    gap: 24px;
-    align-items: flex-start;
-    margin-bottom: 28px;
-}
-
-.eyebrow {
-    margin: 0 0 8px;
-    color: #3157b8;
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-}
-
-.panel-header h1 {
-    margin: 0;
-    font-size: clamp(28px, 4vw, 40px);
-    line-height: 1.15;
-}
-
-.desc {
-    max-width: 320px;
-    margin: 0;
-    color: #50607d;
-    line-height: 1.7;
-}
-
-.editor-card,
-.preview-card {
-    border: 1px solid rgba(72, 106, 166, 0.14);
-    border-radius: 20px;
-    background: #ffffff;
-    box-shadow: 0 16px 40px rgba(31, 66, 135, 0.08);
-}
-
-.editor-card {
-    padding: 24px;
-}
-
-.label {
-    display: block;
-    margin-bottom: 12px;
-    font-weight: 700;
-}
-
 .mathfield-host {
-    min-height: 84px;
+    min-height: 72px;
 }
 
 .math-editor {
     width: 100%;
-    min-height: 84px;
-    padding: 18px 20px;
-    border: 1px solid #c8d7f2;
-    border-radius: 16px;
-    background: #f9fbff;
-    font-size: 28px;
+    min-height: 72px;
+    padding: 14px 16px;
+    font-size: 24px;
     box-sizing: border-box;
 }
 
-.math-editor:focus-within {
-    border-color: #4d79f6;
-    box-shadow: 0 0 0 4px rgba(77, 121, 246, 0.14);
-}
-
-.toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    margin-top: 16px;
-}
-
-.toolbar button {
-    padding: 10px 16px;
-    border: 0;
-    border-radius: 999px;
-    background: linear-gradient(135deg, #3157b8 0%, #4d79f6 100%);
-    color: #ffffff;
-    font-weight: 600;
-    cursor: pointer;
-}
-
-.preview-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 18px;
-    margin-top: 18px;
-}
-
-.preview-card {
-    padding: 24px;
-}
-
-.preview-card h2 {
-    margin: 0 0 12px;
-    font-size: 20px;
-}
-
-.preview-card pre {
+pre {
     margin: 0;
-    padding: 16px;
-    border-radius: 14px;
-    background: #0f172a;
-    color: #dbeafe;
     white-space: pre-wrap;
     word-break: break-word;
-    font-size: 14px;
-    line-height: 1.6;
 }
 
-.preview-card ul {
-    margin: 0;
-    padding-left: 20px;
-    color: #50607d;
-    line-height: 1.8;
-}
-
-@media (max-width: 768px) {
-    .page {
-        padding: 20px 14px;
-    }
-
-    .panel {
-        padding: 22px;
-        border-radius: 20px;
-    }
-
-    .panel-header {
-        flex-direction: column;
-    }
-
-    .desc {
-        max-width: none;
-    }
-
-    .preview-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .math-editor {
-        font-size: 22px;
-    }
+.katex-display {
+    margin: 0.45em 0;
 }
