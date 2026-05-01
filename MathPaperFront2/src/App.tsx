@@ -607,7 +607,7 @@ function CalculatorPanel() {
     return (
         <Row gutter={[20, 20]}>
             <Col xs={24} xl={12}>
-                <Card title="输入公式" className="panel-card" extra={<Tag color="blue">MathLive</Tag>}>
+                <Card title="输入表达式" className="panel-card" extra={<Tag color="blue">MathLive</Tag>}>
                     <div className="formula-preset-grid">
                         {examples.map((item) => (
                             <button

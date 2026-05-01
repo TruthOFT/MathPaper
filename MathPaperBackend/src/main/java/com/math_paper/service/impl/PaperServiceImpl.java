@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import com.math_paper.common.ErrorCode;
 import com.math_paper.dto.AutoGeneratePaperRequest;
 import com.math_paper.dto.PaperResponse;
+import com.math_paper.dto.PaperRuleRequest;
 import com.math_paper.entity.KnowledgePoint;
 import com.math_paper.entity.Paper;
 import com.math_paper.entity.PaperQuestion;
@@ -34,6 +35,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -56,6 +58,37 @@ public class PaperServiceImpl implements PaperService {
                 .eq(PaperRule::getIsDelete, 0)
                 .eq(PaperRule::getStatus, 1)
                 .orderByDesc(PaperRule::getCreateTime));
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    @Override
+    public PaperRule createRule(PaperRuleRequest request) {
+        validateRuleRequest(request);
+        PaperRule rule = new PaperRule();
+        rule.setRuleCode("RULE_" + System.currentTimeMillis());
+        rule.setSubjectCode("math");
+        rule.setStatus(1);
+        rule.setIsDelete(0);
+        applyRuleRequest(rule, request);
+        paperRuleMapper.insert(rule);
+        return rule;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    @Override
+    public PaperRule updateRule(Long id, PaperRuleRequest request) {
+        validateRuleRequest(request);
+        PaperRule rule = findRule(id);
+        applyRuleRequest(rule, request);
+        paperRuleMapper.updateById(rule);
+        return rule;
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    @Override
+    public void deleteRule(Long id) {
+        findRule(id);
+        paperRuleMapper.deleteById(id);
     }
 
     @Override
@@ -215,6 +248,59 @@ public class PaperServiceImpl implements PaperService {
             return objectMapper.readTree(ruleConfig);
         } catch (Exception exception) {
             throw new BusinessException(ErrorCode.PARAM_ERROR, "组卷规则 JSON 解析失败");
+        }
+    }
+
+    private PaperRule findRule(Long id) {
+        if (id == null) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR, "组卷规则 id 不能为空");
+        }
+        PaperRule rule = paperRuleMapper.selectById(id);
+        if (rule == null || rule.getIsDelete() != null && rule.getIsDelete() == 1) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "组卷规则不存在");
+        }
+        return rule;
+    }
+
+    private void validateRuleRequest(PaperRuleRequest request) {
+        if (request == null || isBlank(request.ruleName())) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR, "规则名称不能为空");
+        }
+        if (request.sections() == null || request.sections().isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR, "至少配置一行抽题规则");
+        }
+        BigDecimal targetDifficulty = request.targetDifficulty() == null ? new BigDecimal("0.50") : request.targetDifficulty();
+        if (targetDifficulty.compareTo(BigDecimal.ZERO) < 0 || targetDifficulty.compareTo(BigDecimal.ONE) > 0) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR, "目标难度必须在 0 到 1 之间");
+        }
+        for (PaperRuleRequest.Section section : request.sections()) {
+            if (section == null || isBlank(section.questionType())) {
+                throw new BusinessException(ErrorCode.PARAM_ERROR, "题型不能为空");
+            }
+            if (section.count() == null || section.count() < 1) {
+                throw new BusinessException(ErrorCode.PARAM_ERROR, "每行题目数量必须大于 0");
+            }
+            if (section.score() == null || section.score().compareTo(BigDecimal.ZERO) <= 0) {
+                throw new BusinessException(ErrorCode.PARAM_ERROR, "每题分值必须大于 0");
+            }
+        }
+    }
+
+    private void applyRuleRequest(PaperRule rule, PaperRuleRequest request) {
+        rule.setRuleName(request.ruleName().trim());
+        rule.setSchoolStage(isBlank(request.schoolStage()) ? "junior" : request.schoolStage());
+        rule.setGradeLevel(isBlank(request.gradeLevel()) ? "grade7" : request.gradeLevel());
+        rule.setPaperType(isBlank(request.paperType()) ? "homework" : request.paperType());
+        rule.setTargetDifficulty(request.targetDifficulty() == null ? new BigDecimal("0.50") : request.targetDifficulty());
+        rule.setRemark(request.remark());
+        rule.setQuestionCount(request.sections().stream().mapToInt(PaperRuleRequest.Section::count).sum());
+        rule.setTotalScore(request.sections().stream()
+                .map(section -> section.score().multiply(BigDecimal.valueOf(section.count())))
+                .reduce(BigDecimal.ZERO, BigDecimal::add));
+        try {
+            rule.setRuleConfig(objectMapper.writeValueAsString(Map.of("sections", request.sections())));
+        } catch (Exception exception) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR, "组卷规则 JSON 生成失败");
         }
     }
 
