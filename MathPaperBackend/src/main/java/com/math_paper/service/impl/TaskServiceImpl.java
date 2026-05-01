@@ -11,6 +11,7 @@ import com.math_paper.dto.SubmitAnswerItem;
 import com.math_paper.dto.SubmitAnswersRequest;
 import com.math_paper.dto.SubmitResultResponse;
 import com.math_paper.dto.TaskDetailResponse;
+import com.math_paper.dto.TaskStudentResponse;
 import com.math_paper.dto.TaskSummaryResponse;
 import com.math_paper.entity.AnswerJudgeRecord;
 import com.math_paper.entity.ClassStudent;
@@ -20,6 +21,7 @@ import com.math_paper.entity.Paper;
 import com.math_paper.entity.PaperQuestion;
 import com.math_paper.entity.PaperQuestionOption;
 import com.math_paper.entity.StudentAnswer;
+import com.math_paper.entity.UserAccount;
 import com.math_paper.entity.WrongQuestionBook;
 import com.math_paper.exception.BusinessException;
 import com.math_paper.mapper.AnswerJudgeRecordMapper;
@@ -30,6 +32,7 @@ import com.math_paper.mapper.PaperMapper;
 import com.math_paper.mapper.PaperQuestionMapper;
 import com.math_paper.mapper.PaperQuestionOptionMapper;
 import com.math_paper.mapper.StudentAnswerMapper;
+import com.math_paper.mapper.UserAccountMapper;
 import com.math_paper.mapper.WrongQuestionBookMapper;
 import com.math_paper.service.TaskService;
 import com.math_paper.util.LatexAnswerUtil;
@@ -56,6 +59,7 @@ public class TaskServiceImpl implements TaskService {
     private final StudentAnswerMapper studentAnswerMapper;
     private final AnswerJudgeRecordMapper answerJudgeRecordMapper;
     private final WrongQuestionBookMapper wrongQuestionBookMapper;
+    private final UserAccountMapper userAccountMapper;
 
     @Transactional(rollbackFor = Exception.class)
     @Override
@@ -115,7 +119,7 @@ public class TaskServiceImpl implements TaskService {
                             .eq(HomeworkTask::getIsDelete, 0)
                             .orderByDesc(HomeworkTask::getCreateTime))
                     .stream()
-                    .map(task -> new TaskSummaryResponse(task.getId(), null, task.getPaperId(), task.getTaskName(), String.valueOf(task.getStatus()), null, task.getDeadlineTime()))
+                    .map(task -> new TaskSummaryResponse(task.getId(), null, task.getPaperId(), task.getTaskName(), "published", null, task.getDeadlineTime()))
                     .toList();
         }
 
@@ -140,12 +144,45 @@ public class TaskServiceImpl implements TaskService {
     }
 
     @Override
+    public List<TaskStudentResponse> listTaskStudents(Long taskId, AuthUserResponse teacher) {
+        HomeworkTask task = findTask(taskId);
+        ensureTaskOwner(task, teacher);
+        return homeworkTaskStudentMapper.selectList(new LambdaQueryWrapper<HomeworkTaskStudent>()
+                        .eq(HomeworkTaskStudent::getTaskId, taskId)
+                        .eq(HomeworkTaskStudent::getIsDelete, 0)
+                        .orderByAsc(HomeworkTaskStudent::getCreateTime))
+                .stream()
+                .map(taskStudent -> {
+                    UserAccount student = userAccountMapper.selectById(taskStudent.getStudentId());
+                    ClassStudent classStudent = classStudentMapper.selectOne(new LambdaQueryWrapper<ClassStudent>()
+                            .eq(ClassStudent::getClassId, task.getClassId())
+                            .eq(ClassStudent::getStudentId, taskStudent.getStudentId())
+                            .eq(ClassStudent::getIsDelete, 0)
+                            .last("limit 1"));
+                    return new TaskStudentResponse(
+                            taskStudent.getId(),
+                            taskStudent.getStudentId(),
+                            student == null ? "学生" : student.getRealName(),
+                            classStudent == null ? "" : classStudent.getStudentNo(),
+                            taskStudent.getStatus(),
+                            taskStudent.getTotalScore(),
+                            taskStudent.getSubmitTime(),
+                            wrongCount(taskStudent.getId())
+                    );
+                })
+                .toList();
+    }
+
+    @Override
     public TaskDetailResponse detail(Long taskStudentId, AuthUserResponse user) {
         HomeworkTaskStudent taskStudent = findTaskStudent(taskStudentId);
+        HomeworkTask task = homeworkTaskMapper.selectById(taskStudent.getTaskId());
         if ("student".equals(user.roleType()) && !taskStudent.getStudentId().equals(user.id())) {
             throw new BusinessException(ErrorCode.NO_AUTH);
         }
-        HomeworkTask task = homeworkTaskMapper.selectById(taskStudent.getTaskId());
+        if (("teacher".equals(user.roleType()) || "admin".equals(user.roleType())) && task != null) {
+            ensureTaskOwner(task, user);
+        }
         List<PaperQuestion> questions = paperQuestionMapper.selectList(new LambdaQueryWrapper<PaperQuestion>()
                 .eq(PaperQuestion::getPaperId, taskStudent.getPaperId())
                 .eq(PaperQuestion::getIsDelete, 0)
@@ -313,6 +350,30 @@ public class TaskServiceImpl implements TaskService {
             throw new BusinessException(ErrorCode.NOT_FOUND, "学生作业不存在");
         }
         return taskStudent;
+    }
+
+    private HomeworkTask findTask(Long taskId) {
+        if (taskId == null) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR, "作业 id 不能为空");
+        }
+        HomeworkTask task = homeworkTaskMapper.selectById(taskId);
+        if (task == null || task.getIsDelete() != null && task.getIsDelete() == 1) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "作业不存在");
+        }
+        return task;
+    }
+
+    private void ensureTaskOwner(HomeworkTask task, AuthUserResponse user) {
+        if (!"admin".equals(user.roleType()) && !task.getTeacherId().equals(user.id())) {
+            throw new BusinessException(ErrorCode.NO_AUTH);
+        }
+    }
+
+    private Long wrongCount(Long taskStudentId) {
+        return studentAnswerMapper.selectCount(new LambdaQueryWrapper<StudentAnswer>()
+                .eq(StudentAnswer::getTaskStudentId, taskStudentId)
+                .eq(StudentAnswer::getJudgeResult, "wrong")
+                .eq(StudentAnswer::getIsDelete, 0));
     }
 
     private boolean isBlank(String value) {
