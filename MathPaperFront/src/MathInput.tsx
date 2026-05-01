@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
-import { MathfieldElement } from 'mathlive'
+import {useEffect, useRef} from 'react'
+import {MathfieldElement} from 'mathlive'
 import 'mathlive/fonts.css'
 
 type MathInputProps = {
@@ -8,7 +8,7 @@ type MathInputProps = {
     placeholder?: string
 }
 
-export function MathInput({ value, onChange, placeholder }: MathInputProps) {
+export function MathInput({value, onChange, placeholder}: MathInputProps) {
     const hostRef = useRef<HTMLDivElement | null>(null)
     const mathfieldRef = useRef<MathfieldElement | null>(null)
     const onChangeRef = useRef(onChange)
@@ -57,5 +57,5 @@ export function MathInput({ value, onChange, placeholder }: MathInputProps) {
         }
     }, [value])
 
-    return <div ref={hostRef} className="mathfield-host" />
+    return <div ref={hostRef} className="mathfield-host"/>
 }
