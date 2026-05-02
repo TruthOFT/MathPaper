@@ -208,6 +208,42 @@ class MathJsonToSymjaUtilTest {
     }
 
     @Test
+    void matrixEigenAndTraceFunctionsConvert() throws Exception {
+        assertEquals(
+                "Eigenvalues[{{2,0},{0,3}}]",
+                MathJsonToSymjaUtil.convertForCalculation(objectMapper.readTree("""
+                        ["Eigenvalues",["Matrix",["List",["List",2,0],["List",0,3]],"'[]'"]]
+                        """)));
+        assertEquals(
+                "Eigenvectors[{{2,0},{0,3}}]",
+                MathJsonToSymjaUtil.convertForCalculation(objectMapper.readTree("""
+                        ["Eigenvectors",["Matrix",["List",["List",2,0],["List",0,3]],"'[]'"]]
+                        """)));
+        assertEquals(
+                "Tr[{{2,0},{0,3}}]",
+                MathJsonToSymjaUtil.convertForCalculation(objectMapper.readTree("""
+                        ["Tr",["Matrix",["List",["List",2,0],["List",0,3]],"'[]'"]]
+                        """)));
+    }
+
+    @Test
+    void matrixEigenAndTraceFunctionsCalculate() throws Exception {
+        SymjaCalculateUtil.SymjaCalculateResult eigenvalues = SymjaCalculateUtil.calculate(objectMapper.readTree("""
+                ["Eigenvalues",["Matrix",["List",["List",2,0],["List",0,3]],"'[]'"]]
+                """));
+        SymjaCalculateUtil.SymjaCalculateResult eigenvectors = SymjaCalculateUtil.calculate(objectMapper.readTree("""
+                ["Eigenvectors",["Matrix",["List",["List",2,0],["List",0,3]],"'[]'"]]
+                """));
+        SymjaCalculateUtil.SymjaCalculateResult trace = SymjaCalculateUtil.calculate(objectMapper.readTree("""
+                ["Tr",["Matrix",["List",["List",2,0],["List",0,3]],"'[]'"]]
+                """));
+
+        assertEquals("{3,2}", compact(eigenvalues.result()));
+        assertEquals("{{0.0,1.0},{1.0,0.0}}", compact(eigenvectors.result()));
+        assertEquals("5", trace.result());
+    }
+
+    @Test
     void sumWithLimitsConvertsToSymjaIterator() throws Exception {
         assertEquals(
                 "Sum[x,{n,1,10}]",

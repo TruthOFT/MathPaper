@@ -40,7 +40,10 @@ public final class MathJsonToSymjaUtil {
             Map.entry("RowReduce", "RowReduce"),
             Map.entry("MatrixRank", "MatrixRank"),
             Map.entry("NullSpace", "NullSpace"),
-            Map.entry("LinearSolve", "LinearSolve"));
+            Map.entry("LinearSolve", "LinearSolve"),
+            Map.entry("Eigenvalues", "Eigenvalues"),
+            Map.entry("Eigenvectors", "Eigenvectors"),
+            Map.entry("Tr", "Tr"));
 
     private MathJsonToSymjaUtil() {
     }

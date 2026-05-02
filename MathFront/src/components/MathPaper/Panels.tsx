@@ -220,7 +220,15 @@ type CalculateResponse = {
     message: string
 }
 
-type MatrixAction = 'determinant' | 'rowReduce' | 'matrixRank' | 'nullSpace' | 'linearSolve'
+type MatrixAction =
+    | 'determinant'
+    | 'rowReduce'
+    | 'matrixRank'
+    | 'nullSpace'
+    | 'linearSolve'
+    | 'eigenvalues'
+    | 'eigenvectors'
+    | 'trace'
 
 type MatrixInfo = {
     node: unknown[]
@@ -234,6 +242,9 @@ const matrixActionLabel: Record<MatrixAction, string> = {
     matrixRank: '秩',
     nullSpace: '零空间',
     linearSolve: '线性方程组',
+    eigenvalues: '特征值',
+    eigenvectors: '特征向量',
+    trace: '迹',
 }
 
 const isJsonArray = (value: unknown): value is unknown[] => Array.isArray(value)
@@ -297,6 +308,9 @@ const buildMatrixActionMathJson = (action: MatrixAction, matrixInfo: MatrixInfo)
         rowReduce: 'RowReduce',
         matrixRank: 'MatrixRank',
         nullSpace: 'NullSpace',
+        eigenvalues: 'Eigenvalues',
+        eigenvectors: 'Eigenvectors',
+        trace: 'Tr',
     }
 
     return [headByAction[action], matrixInfo.node]
@@ -580,6 +594,9 @@ export function CalculatorPanel() {
         '\\int_0^1 x^2\\,dx',
         '\\lim_{x\\to0}\\frac{\\sin x}{x}',
         '\\frac{d}{dx}x^3',
+        '\\dfrac{\\mathrm{d}}{\\mathrm{d}x}x^3\\bigm|_{x=2}',
+        '\\dfrac{\\mathrm{d}^2}{\\mathrm{d}x^2}x^3\\bigm|_{x=1}',
+        '\\dfrac{\\mathrm{d}^3}{\\mathrm{d}x^3}x^5\\bigm|_{x=2}',
         'x^2=1',
         '\\begin{bmatrix}1&2\\\\2&4\\end{bmatrix}',
         '\\begin{bmatrix}2&1&5\\\\1&-1&1\\end{bmatrix}',
