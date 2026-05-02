@@ -1,9 +1,6 @@
 import { PageContainer } from '@ant-design/pro-components';
-import XMarkdown from '@ant-design/x-markdown';
 import '@ant-design/x-markdown/es/XMarkdown/index.css';
-import enUS from '@root/docs/cheatsheet.en-US.md';
-import zhCN from '@root/docs/cheatsheet.zh-CN.md';
-import { getLocale, useIntl, useModel } from '@umijs/max';
+import { useIntl, useModel } from '@umijs/max';
 import { Card } from 'antd';
 import hljs from 'highlight.js';
 import React from 'react';
@@ -34,11 +31,6 @@ const InfoCard: React.FC<InfoCardProps> = ({ title, index, desc, href }) => (
     </Card>
   </a>
 );
-
-const mdContent: Record<string, string> = {
-  'zh-CN': zhCN,
-  'en-US': enUS,
-};
 
 // XMarkdown Renderer passes class names via non-standard props
 interface HeadingProps extends React.HTMLAttributes<HTMLHeadingElement> {
@@ -141,13 +133,6 @@ const infoCards = [
 
 const Welcome: React.FC = () => {
   const intl = useIntl();
-  const locale = getLocale();
-  const normalizedLocale = locale.toLowerCase();
-  const content =
-    mdContent[locale] ??
-    (normalizedLocale.startsWith('zh')
-      ? mdContent['zh-CN']
-      : mdContent['en-US']);
   const { initialState } = useModel('@@initialState');
   const isDark = initialState?.settings?.navTheme === 'realDark';
 
@@ -176,13 +161,6 @@ const Welcome: React.FC = () => {
         data-theme={isDark ? 'dark' : 'light'}
         className="flex flex-col gap-6 md:flex-row"
       >
-        <div className="min-w-0 md:flex-[2] welcome-markdown">
-          <Card>
-            <XMarkdown components={mdComponents} config={mdConfig}>
-              {content}
-            </XMarkdown>
-          </Card>
-        </div>
         <div className="flex flex-1 flex-col gap-4">
           {infoCards.map((card) => (
             <InfoCard

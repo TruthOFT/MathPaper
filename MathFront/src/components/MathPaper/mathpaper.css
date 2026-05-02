@@ -108,11 +108,26 @@
     margin-bottom: 16px;
 }
 
+.formula-preset-collapse {
+    margin-bottom: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+}
+
+.formula-preset-collapse .ant-collapse-header {
+    min-height: 42px;
+    align-items: center !important;
+}
+
+.formula-preset-collapse .ant-collapse-content-box {
+    padding-top: 0 !important;
+}
+
 .formula-preset-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
-    margin-bottom: 16px;
+    margin-bottom: 4px;
 }
 
 .formula-preset {
@@ -149,6 +164,14 @@
     border: 1px solid #cbd5e1;
     border-radius: 8px;
     background: #ffffff;
+}
+
+.matrix-action-panel {
+    margin-bottom: 16px;
+    padding: 12px;
+    background: #f8fafc;
+    border: 1px solid #dbeafe;
+    border-radius: 8px;
 }
 
 .latex-preview {

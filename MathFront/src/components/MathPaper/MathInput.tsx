@@ -8,6 +8,13 @@ type MathInputProps = {
     placeholder?: string
 }
 
+const keepOriginalInsertMenus = (mathfield: MathfieldElement) => {
+    const visibleMenuIds = new Set(['copy', 'insert', 'insert-matrix'])
+    mathfield.menuItems = mathfield.menuItems.filter(
+        (item) => 'id' in item && Boolean(item.id && visibleMenuIds.has(item.id)),
+    )
+}
+
 export function MathInput({value, onChange, placeholder}: MathInputProps) {
     const hostRef = useRef<HTMLDivElement | null>(null)
     const mathfieldRef = useRef<MathfieldElement | null>(null)
@@ -42,6 +49,11 @@ export function MathInput({value, onChange, placeholder}: MathInputProps) {
         mathfield.addEventListener('input', handleInput)
         hostRef.current.replaceChildren(mathfield)
         mathfieldRef.current = mathfield
+        window.queueMicrotask(() => {
+            if (mathfieldRef.current === mathfield) {
+                keepOriginalInsertMenus(mathfield)
+            }
+        })
 
         return () => {
             mathfield.removeEventListener('input', handleInput)

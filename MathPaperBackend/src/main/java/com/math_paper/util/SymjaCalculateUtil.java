@@ -14,7 +14,12 @@ public final class SymjaCalculateUtil {
 
     public static SymjaCalculateResult calculate(JsonNode mathJson) {
         String symjaExpression = MathJsonToSymjaUtil.convertForCalculation(mathJson);
-        return calculateSymjaExpression(symjaExpression);
+        SymjaCalculateResult result = calculateSymjaExpression(symjaExpression);
+        if (MathJsonToSymjaUtil.isIndefiniteIntegral(mathJson)) {
+            return appendIntegralConstant(result);
+        }
+
+        return result;
     }
 
     private static SymjaCalculateResult calculateSymjaExpression(String symjaExpression) {
@@ -28,8 +33,7 @@ public final class SymjaCalculateUtil {
         return new SymjaCalculateResult(
                 symjaExpression,
                 result.toString(),
-                toLatex(evaluator, result)
-        );
+                toLatex(evaluator, result));
     }
 
     private static String toLatex(ExprEvaluator evaluator, IExpr expression) {
@@ -41,13 +45,23 @@ public final class SymjaCalculateUtil {
             return expression.toString();
         }
 
-        return writer.toString();
+        return normalizeLatex(writer.toString());
+    }
+
+    private static String normalizeLatex(String latex) {
+        return latex.replace("\\log", "\\ln");
+    }
+
+    private static SymjaCalculateResult appendIntegralConstant(SymjaCalculateResult result) {
+        return new SymjaCalculateResult(
+                result.symjaExpression(),
+                result.result() + "+C",
+                result.resultLatex() + "+C");
     }
 
     public record SymjaCalculateResult(
             String symjaExpression,
             String result,
-            String resultLatex
-    ) {
+            String resultLatex) {
     }
 }

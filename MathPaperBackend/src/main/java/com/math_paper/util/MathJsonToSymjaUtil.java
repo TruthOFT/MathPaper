@@ -16,8 +16,7 @@ public final class MathJsonToSymjaUtil {
             Map.entry("PositiveInfinity", "Infinity"),
             Map.entry("NegativeInfinity", "-Infinity"),
             Map.entry("Infinity", "Infinity"),
-            Map.entry("ImaginaryUnit", "I")
-    );
+            Map.entry("ImaginaryUnit", "I"));
 
     private static final Map<String, String> DIRECT_FUNCTIONS = Map.ofEntries(
             Map.entry("Sin", "Sin"),
@@ -37,8 +36,11 @@ public final class MathJsonToSymjaUtil {
             Map.entry("Exp", "Exp"),
             Map.entry("Abs", "Abs"),
             Map.entry("Sqrt", "Sqrt"),
-            Map.entry("Factorial", "Factorial")
-    );
+            Map.entry("Factorial", "Factorial"),
+            Map.entry("RowReduce", "RowReduce"),
+            Map.entry("MatrixRank", "MatrixRank"),
+            Map.entry("NullSpace", "NullSpace"),
+            Map.entry("LinearSolve", "LinearSolve"));
 
     private MathJsonToSymjaUtil() {
     }
@@ -60,6 +62,18 @@ public final class MathJsonToSymjaUtil {
         }
 
         return symjaExpression;
+    }
+
+    public static boolean isIndefiniteIntegral(JsonNode mathJson) {
+        if (!hasHead(mathJson, "Integrate") || mathJson.size() != 3) {
+            return false;
+        }
+
+        JsonNode limitsNode = mathJson.get(2);
+        return hasHead(limitsNode, "Limits")
+                && limitsNode.size() == 4
+                && isNothingNode(limitsNode.get(2))
+                && isNothingNode(limitsNode.get(3));
     }
 
     private static String convertNode(JsonNode node) {
@@ -89,7 +103,7 @@ public final class MathJsonToSymjaUtil {
             case "Add" -> call("Plus", convertArguments(node, 1));
             case "Subtract" -> convertSubtract(node);
             case "Negate" -> call("Times", List.of("-1", convertRequired(node, 1)));
-            case "Multiply" -> call("Times", convertArguments(node, 1));
+            case "Multiply" -> convertMultiply(node);
             case "Divide" -> call("Divide", convertArguments(node, 1));
             case "Rational" -> call("Rational", convertArguments(node, 1));
             case "Power" -> call("Power", convertArguments(node, 1));
@@ -100,12 +114,19 @@ public final class MathJsonToSymjaUtil {
             case "LessEqual" -> call("LessEqual", convertArguments(node, 1));
             case "Greater" -> call("Greater", convertArguments(node, 1));
             case "GreaterEqual" -> call("GreaterEqual", convertArguments(node, 1));
-            case "List", "Tuple" -> "{" + String.join(",", convertArguments(node, 1)) + "}";
+            case "List" -> "{" + String.join(",", convertArguments(node, 1)) + "}";
+            case "Tuple" -> convertTuple(node);
+            case "Matrix" -> convertMatrix(node);
+            case "Determinant", "Det" -> call("Det", convertArguments(node, 1));
+            case "Inverse" -> call("Inverse", convertArguments(node, 1));
+            case "Transpose" -> call("Transpose", convertArguments(node, 1));
+            case "Subscript" -> convertSubscript(node);
+            case "EvaluateAt" -> convertEvaluateAt(node, null);
             case "Delimiter", "Block", "Parentheses" -> convertRequired(node, 1);
             case "Function" -> convertFunctionBody(node);
             case "Limits" -> convertLimits(node);
             case "Integrate" -> convertIntegrate(node);
-            case "Derivative" -> convertDerivative(node);
+            case "Derivative", "D" -> convertDerivative(node);
             case "Limit" -> convertLimit(node);
             case "Sum" -> convertIteratorFunction("Sum", node);
             case "Product" -> convertIteratorFunction("Product", node);
@@ -189,12 +210,122 @@ public final class MathJsonToSymjaUtil {
         return call(symjaFunction, convertArguments(node, 1));
     }
 
+    private static String convertTuple(JsonNode node) {
+        if (node.size() >= 3 && node.get(1).isTextual()) {
+            String symjaFunction = DIRECT_FUNCTIONS.get(node.get(1).asText());
+            if (symjaFunction != null) {
+                return call(symjaFunction, convertArguments(node, 2));
+            }
+        }
+
+        return "{" + String.join(",", convertArguments(node, 1)) + "}";
+    }
+
+    private static String convertSubscript(JsonNode node) {
+        if (node.size() == 3 && hasHead(node.get(1), "EvaluateAt")) {
+            return convertEvaluateAt(node.get(1), node.get(2));
+        }
+
+        throw new IllegalArgumentException("Subscript 暂只支持求值竖线: " + node);
+    }
+
+    private static String convertEvaluateAt(JsonNode evaluateAtNode, JsonNode substitutionNode) {
+        if (evaluateAtNode.size() < 2) {
+            throw new IllegalArgumentException("EvaluateAt 缺少表达式: " + evaluateAtNode);
+        }
+
+        String expression = convertEvaluateAtExpression(evaluateAtNode.get(1));
+        if (substitutionNode == null) {
+            return expression;
+        }
+
+        return call("ReplaceAll", List.of(expression, convertSubstitutionRule(substitutionNode)));
+    }
+
+    private static String convertEvaluateAtExpression(JsonNode node) {
+        if (isFunctionNode(node)) {
+            return convertFunctionExpression(node);
+        }
+
+        return convertNode(node);
+    }
+
+    private static String convertSubstitutionRule(JsonNode node) {
+        if (hasHead(node, "Equal") || hasHead(node, "Rule") || hasHead(node, "To")) {
+            if (node.size() != 3) {
+                throw new IllegalArgumentException("代入规则参数数量不支持: " + node);
+            }
+            return convertNode(node.get(1)) + "->" + convertNode(node.get(2));
+        }
+
+        throw new IllegalArgumentException("代入规则格式不支持: " + node);
+    }
+
     private static String convertSubtract(JsonNode node) {
         if (node.size() != 3) {
             throw new IllegalArgumentException("Subtract 需要两个参数: " + node);
         }
 
         return call("Subtract", List.of(convertNode(node.get(1)), convertNode(node.get(2))));
+    }
+
+    private static String convertMultiply(JsonNode node) {
+        List<String> args = convertArguments(node, 1);
+        if (args.size() >= 2 && allMatrixLikeArguments(node, 1)) {
+            return call("Dot", args);
+        }
+
+        return call("Times", args);
+    }
+
+    private static boolean allMatrixLikeArguments(JsonNode node, int startIndex) {
+        for (int i = startIndex; i < node.size(); i++) {
+            if (!isMatrixLikeNode(node.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isMatrixLikeNode(JsonNode node) {
+        if (!node.isArray() || node.isEmpty()) {
+            return false;
+        }
+
+        String head = node.get(0).asText();
+        return "Matrix".equals(head) || "List".equals(head) || "Tuple".equals(head);
+    }
+
+    private static String convertMatrix(JsonNode node) {
+        if (node.size() < 2) {
+            throw new IllegalArgumentException("Matrix 缺少行数据: " + node);
+        }
+
+        JsonNode rowsNode = node.get(1);
+        if (!rowsNode.isArray() || rowsNode.isEmpty() || !"List".equals(rowsNode.get(0).asText())) {
+            throw new IllegalArgumentException("Matrix 行数据格式不支持: " + node);
+        }
+
+        List<String> rows = new ArrayList<>();
+        Integer columnCount = null;
+        for (int i = 1; i < rowsNode.size(); i++) {
+            JsonNode rowNode = rowsNode.get(i);
+            if (!rowNode.isArray() || rowNode.isEmpty()
+                    || (!"List".equals(rowNode.get(0).asText()) && !"Tuple".equals(rowNode.get(0).asText()))) {
+                throw new IllegalArgumentException("Matrix 行格式不支持: " + rowNode);
+            }
+
+            int currentColumnCount = rowNode.size() - 1;
+            if (columnCount == null) {
+                columnCount = currentColumnCount;
+            } else if (columnCount != currentColumnCount) {
+                throw new IllegalArgumentException("Matrix 每行列数必须一致: " + node);
+            }
+
+            rows.add("{" + String.join(",", convertArguments(rowNode, 1)) + "}");
+        }
+
+        return "{" + String.join(",", rows) + "}";
     }
 
     private static String convertFunctionBody(JsonNode node) {
@@ -211,7 +342,8 @@ public final class MathJsonToSymjaUtil {
         }
 
         if (node.size() == 4) {
-            return "{" + convertNode(node.get(1)) + "," + convertNode(node.get(2)) + "," + convertNode(node.get(3)) + "}";
+            return "{" + convertNode(node.get(1)) + "," + convertNode(node.get(2)) + "," + convertNode(node.get(3))
+                    + "}";
         }
 
         throw new IllegalArgumentException("Limits 参数数量不支持: " + node);
@@ -219,23 +351,148 @@ public final class MathJsonToSymjaUtil {
 
     private static String convertIntegrate(JsonNode node) {
         if (node.size() == 3) {
-            return call("Integrate", List.of(convertNode(node.get(1)), convertNode(node.get(2))));
+            JsonNode integrandNode = node.get(1);
+            JsonNode limitsNode = node.get(2);
+            String integrand = isFunctionNode(integrandNode)
+                    ? convertFunctionExpression(integrandNode)
+                    : convertNode(integrandNode);
+
+            if (hasHead(limitsNode, "Limits")) {
+                return convertIntegralWithLimits(integrand, integrandNode, limitsNode);
+            }
+
+            return call("Integrate", List.of(integrand, convertNode(limitsNode)));
+        }
+
+        if (node.size() == 2) {
+            return call("Integrate", List.of(convertNode(node.get(1)), guessVariable(node.get(1))));
         }
 
         throw new IllegalArgumentException("Integrate 参数数量不支持: " + node);
     }
 
-    private static String convertDerivative(JsonNode node) {
-        if (node.size() == 3) {
-            return call("D", List.of(convertNode(node.get(1)), convertNode(node.get(2))));
+    private static String convertIntegralWithLimits(String integrand, JsonNode integrandNode, JsonNode limitsNode) {
+        if (limitsNode.size() != 4) {
+            throw new IllegalArgumentException("Integrate Limits 参数数量不支持: " + limitsNode);
         }
 
+        String variable = isNothingNode(limitsNode.get(1))
+                ? guessIntegralVariable(integrandNode)
+                : convertNode(limitsNode.get(1));
+        boolean hasLower = !isNothingNode(limitsNode.get(2));
+        boolean hasUpper = !isNothingNode(limitsNode.get(3));
+
+        if (!hasLower && !hasUpper) {
+            return call("Integrate", List.of(integrand, variable));
+        }
+
+        if (hasLower && hasUpper) {
+            String range = "{" + variable + "," + convertNode(limitsNode.get(2)) + "," + convertNode(limitsNode.get(3))
+                    + "}";
+            return call("Integrate", List.of(integrand, range));
+        }
+
+        throw new IllegalArgumentException("Integrate 暂不支持单侧积分上下限: " + limitsNode);
+    }
+
+    private static String guessIntegralVariable(JsonNode integrandNode) {
+        if (isFunctionNode(integrandNode) && integrandNode.size() >= 3) {
+            return convertFunctionVariable(integrandNode);
+        }
+
+        return guessVariable(integrandNode);
+    }
+
+    private static boolean isNothingNode(JsonNode node) {
+        return node != null && node.isTextual() && "Nothing".equals(node.asText());
+    }
+
+    private static String convertDerivative(JsonNode node) {
+        if (node.size() >= 2 && isFunctionNode(node.get(1))) {
+            return convertFunctionDerivative(node);
+        }
+
+        if (node.size() == 3) {
+            JsonNode arg2 = node.get(2);
+            if (!(arg2.isNumber() || (arg2.isTextual() && arg2.asText().matches("\\d+")))) {
+                return call("D", List.of(convertNode(node.get(1)), convertNode(arg2)));
+            }
+        }
+
+        // 格式1: ["D", expr, var] 或 ["Derivative", expr, var]
+        if (node.size() == 3) {
+            JsonNode arg2 = node.get(2);
+            // arg2 是数字 => 阶数，需要从表达式中推断变量
+            if (arg2.isNumber() || (arg2.isTextual() && arg2.asText().matches("\\d+"))) {
+                int order = arg2.asInt();
+                String expr = convertNode(node.get(1));
+                String variable = guessVariable(node.get(1));
+                if (order == 1) {
+                    return call("D", List.of(expr, variable));
+                }
+                return call("D", List.of(expr, "{" + variable + "," + order + "}"));
+            }
+            // arg2 是变量符号
+            return call("D", List.of(convertNode(node.get(1)), convertNode(arg2)));
+        }
+
+        // 格式2: ["D", expr, var, order] 或 ["Derivative", expr, var, order]
         if (node.size() == 4) {
             String variableAndOrder = "{" + convertNode(node.get(2)) + "," + convertNode(node.get(3)) + "}";
             return call("D", List.of(convertNode(node.get(1)), variableAndOrder));
         }
 
+        // 格式3: ["Derivative", expr] => 一阶导，推断变量
+        if (node.size() == 2) {
+            String expr = convertNode(node.get(1));
+            String variable = guessVariable(node.get(1));
+            return call("D", List.of(expr, variable));
+        }
+
         throw new IllegalArgumentException("Derivative 参数数量不支持: " + node);
+    }
+
+    private static String convertFunctionDerivative(JsonNode node) {
+        JsonNode functionNode = node.get(1);
+        String expression = convertFunctionExpression(functionNode);
+        String variable = convertFunctionDerivativeVariable(functionNode);
+
+        if (node.size() == 2) {
+            return call("D", List.of(expression, variable));
+        }
+
+        if (node.size() == 3) {
+            JsonNode arg2 = node.get(2);
+            if (arg2.isNumber() || (arg2.isTextual() && arg2.asText().matches("\\d+"))) {
+                int order = arg2.asInt();
+                if (order == 1) {
+                    return call("D", List.of(expression, variable));
+                }
+                return call("D", List.of(expression, "{" + variable + "," + order + "}"));
+            }
+
+            return call("D", List.of(expression, convertNode(arg2)));
+        }
+
+        if (node.size() == 4) {
+            String variableAndOrder = "{" + convertNode(node.get(2)) + "," + convertNode(node.get(3)) + "}";
+            return call("D", List.of(expression, variableAndOrder));
+        }
+
+        throw new IllegalArgumentException("Derivative 鍙傛暟鏁伴噺涓嶆敮鎸? " + node);
+    }
+
+    /**
+     * 从表达式节点中猜测第一个出现的变量（非常量符号）作为求导变量。
+     * 如果找不到，默认返回 "x"。
+     */
+    private static String guessVariable(JsonNode exprNode) {
+        Set<String> vars = new LinkedHashSet<>();
+        collectVariables(exprNode, vars, false);
+        if (vars.contains("x")) {
+            return "x";
+        }
+        return vars.isEmpty() ? "x" : vars.iterator().next();
     }
 
     private static String convertLimit(JsonNode node) {
@@ -269,12 +526,34 @@ public final class MathJsonToSymjaUtil {
         return convertNode(functionNode.get(2));
     }
 
+    private static String convertFunctionDerivativeVariable(JsonNode functionNode) {
+        if (functionNode.size() < 3) {
+            return "x";
+        }
+
+        return convertNode(functionNode.get(functionNode.size() - 1));
+    }
+
     private static String convertIteratorFunction(String symjaFunction, JsonNode node) {
         if (node.size() == 3) {
-            return call(symjaFunction, List.of(convertNode(node.get(1)), convertNode(node.get(2))));
+            JsonNode iteratorNode = node.get(2);
+            if (hasHead(iteratorNode, "Limits")) {
+                return call(symjaFunction, List.of(convertNode(node.get(1)), convertIteratorLimits(iteratorNode)));
+            }
+
+            return call(symjaFunction, List.of(convertNode(node.get(1)), convertNode(iteratorNode)));
         }
 
         throw new IllegalArgumentException(symjaFunction + " 参数数量不支持: " + node);
+    }
+
+    private static String convertIteratorLimits(JsonNode node) {
+        if (node.size() == 4) {
+            return "{" + convertNode(node.get(1)) + "," + convertNode(node.get(2)) + "," + convertNode(node.get(3))
+                    + "}";
+        }
+
+        throw new IllegalArgumentException("迭代上下限参数数量不支持: " + node);
     }
 
     private static String convertRequired(JsonNode node, int index) {

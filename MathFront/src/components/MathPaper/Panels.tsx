@@ -1,4 +1,4 @@
-﻿import {useCallback, useEffect, useState} from 'react'
+﻿import {useCallback, useEffect, useMemo, useState} from 'react'
 import type {ReactNode} from 'react'
 import {ComputeEngine} from '@cortex-js/compute-engine'
 import {
@@ -6,6 +6,7 @@ import {
     Button,
     Card,
     Col,
+    Collapse,
     Divider,
     Empty,
     Flex,
@@ -219,6 +220,147 @@ type CalculateResponse = {
     message: string
 }
 
+type MatrixAction = 'determinant' | 'rowReduce' | 'matrixRank' | 'nullSpace' | 'linearSolve'
+
+type MatrixInfo = {
+    node: unknown[]
+    rowCount: number
+    columnCount: number
+}
+
+const matrixActionLabel: Record<MatrixAction, string> = {
+    determinant: '行列式',
+    rowReduce: '行最简',
+    matrixRank: '秩',
+    nullSpace: '零空间',
+    linearSolve: '线性方程组',
+}
+
+const isJsonArray = (value: unknown): value is unknown[] => Array.isArray(value)
+
+const getMatrixInfo = (value: unknown): MatrixInfo | null => {
+    const node = unwrapMatrixNode(value)
+    if (!node) {
+        return null
+    }
+
+    const rowsNode = node[1]
+    if (!isJsonArray(rowsNode) || rowsNode[0] !== 'List') {
+        return null
+    }
+
+    let columnCount: number | null = null
+    for (let i = 1; i < rowsNode.length; i += 1) {
+        const rowNode = rowsNode[i]
+        if (!isJsonArray(rowNode) || rowNode[0] !== 'List') {
+            return null
+        }
+
+        const currentColumnCount = rowNode.length - 1
+        if (columnCount === null) {
+            columnCount = currentColumnCount
+        } else if (columnCount !== currentColumnCount) {
+            return null
+        }
+    }
+
+    return {
+        node,
+        rowCount: rowsNode.length - 1,
+        columnCount: columnCount ?? 0,
+    }
+}
+
+const unwrapMatrixNode = (value: unknown): unknown[] | null => {
+    if (!isJsonArray(value)) {
+        return null
+    }
+
+    if (value[0] === 'Matrix') {
+        return value
+    }
+
+    if (value[0] === 'List' && value.length === 2) {
+        return unwrapMatrixNode(value[1])
+    }
+
+    return null
+}
+
+const buildMatrixActionMathJson = (action: MatrixAction, matrixInfo: MatrixInfo): unknown[] | null => {
+    if (action === 'linearSolve') {
+        return buildLinearSolveFromAugmentedMatrix(matrixInfo)
+    }
+
+    const headByAction: Record<Exclude<MatrixAction, 'linearSolve'>, string> = {
+        determinant: 'Determinant',
+        rowReduce: 'RowReduce',
+        matrixRank: 'MatrixRank',
+        nullSpace: 'NullSpace',
+    }
+
+    return [headByAction[action], matrixInfo.node]
+}
+
+const buildLinearSolveFromAugmentedMatrix = (matrixInfo: MatrixInfo): unknown[] | null => {
+    if (matrixInfo.columnCount < 2 || matrixInfo.columnCount !== matrixInfo.rowCount + 1) {
+        return null
+    }
+
+    const rowsNode = matrixInfo.node[1]
+    if (!isJsonArray(rowsNode)) {
+        return null
+    }
+
+    const coefficientRows: unknown[] = ['List']
+    const valueRows: unknown[] = ['List']
+    for (let i = 1; i < rowsNode.length; i += 1) {
+        const rowNode = rowsNode[i]
+        if (!isJsonArray(rowNode)) {
+            return null
+        }
+
+        coefficientRows.push(['List', ...rowNode.slice(1, -1)])
+        valueRows.push(['List', rowNode[rowNode.length - 1]])
+    }
+
+    return [
+        'LinearSolve',
+        ['Matrix', coefficientRows, "'[]'"],
+        ['Matrix', valueRows, "'[]'"],
+    ]
+}
+
+const normalizeLatexForComputeEngine = (value: string) => {
+    const source = normalizeNthDerivativeLatex(stripOuterMathDelimiters(value.trim()))
+    return source.replace(
+        /^(.+)\\(?:bigm|Bigm|middle)\s*(?:\||\\vert)\s*(_(?:\{[^{}]+\}|[^\s]+))$/,
+        (_, expression: string, subscript: string) => `\\left.${expression}\\right|${subscript}`,
+    )
+}
+
+const stripOuterMathDelimiters = (value: string) => {
+    const source = value.trim()
+    if (source.startsWith('$$') && source.endsWith('$$')) {
+        return source.slice(2, -2).trim()
+    }
+    if (source.startsWith('\\[') && source.endsWith('\\]')) {
+        return source.slice(2, -2).trim()
+    }
+    if (source.startsWith('\\(') && source.endsWith('\\)')) {
+        return source.slice(2, -2).trim()
+    }
+    return source
+}
+
+const normalizeNthDerivativeLatex = (value: string) => value.replace(
+    /^\\(?:dfrac|tfrac|frac)\{?(?:\\mathrm\{d\}|d)\^?\{?(\d+)\}?\}?\{?(?:\\mathrm\{d\}|d)\s*([a-zA-Z])\^?\{?\1\}?\}?(.+)$/,
+    (_, order: string, variable: string, expression: string) => {
+        const firstDerivative = `\\frac{d}{d${variable}}`
+        return `${firstDerivative.repeat(Number(order))}${expression}`
+    },
+)
+
 type QuestionFormState = {
     id?: Id
     questionType: string
@@ -389,15 +531,21 @@ export function CalculatorPanel() {
     const [result, setResult] = useState<CalculateResponse | null>(null)
     const [loading, setLoading] = useState(false)
     const {message} = AntApp.useApp()
+    const matrixInfo = useMemo(() => {
+        try {
+            return getMatrixInfo(computeEngine.parse(normalizeLatexForComputeEngine(latex)).json)
+        } catch {
+            return null
+        }
+    }, [latex])
 
-    const calculate = async () => {
+    const submitCalculation = async (requestLatex: string, requestMathJson: unknown) => {
         setLoading(true)
         try {
-            const parsedMathJson = computeEngine.parse(latex).json
-            setMathJson(parsedMathJson)
+            setMathJson(requestMathJson)
             const data = await mathRequest<CalculateResponse>('/api/calculate', {
                 method: 'POST',
-                body: JSON.stringify({latex, mathJson: parsedMathJson}),
+                body: JSON.stringify({latex: requestLatex, mathJson: requestMathJson}),
             })
             setResult(data)
             message.success(data.message || '计算完成')
@@ -408,33 +556,94 @@ export function CalculatorPanel() {
         }
     }
 
+    const calculate = async () => {
+        const parsedMathJson = computeEngine.parse(normalizeLatexForComputeEngine(latex)).json
+        await submitCalculation(latex, parsedMathJson)
+    }
+
+    const calculateMatrixAction = async (action: MatrixAction) => {
+        if (!matrixInfo) {
+            message.warning('请先输入一个矩阵')
+            return
+        }
+
+        const actionMathJson = buildMatrixActionMathJson(action, matrixInfo)
+        if (!actionMathJson) {
+            message.warning('线性方程组请使用增广矩阵，最后一列作为常数项')
+            return
+        }
+
+        await submitCalculation(`${matrixActionLabel[action]}(${latex})`, actionMathJson)
+    }
+
     const examples = [
         '\\int_0^1 x^2\\,dx',
         '\\lim_{x\\to0}\\frac{\\sin x}{x}',
         '\\frac{d}{dx}x^3',
         'x^2=1',
+        '\\begin{bmatrix}1&2\\\\2&4\\end{bmatrix}',
+        '\\begin{bmatrix}2&1&5\\\\1&-1&1\\end{bmatrix}',
+        '\\det\\begin{bmatrix}1&2\\\\3&4\\end{bmatrix}',
+        '\\begin{bmatrix}1&2\\\\3&4\\end{bmatrix}^{-1}',
+        '\\begin{bmatrix}1&2\\\\3&4\\end{bmatrix}+\\begin{bmatrix}5&6\\\\7&8\\end{bmatrix}',
+        '\\begin{bmatrix}1&2\\\\3&4\\end{bmatrix}\\cdot\\begin{bmatrix}5&6\\\\7&8\\end{bmatrix}',
     ]
 
     return (
         <Row gutter={[20, 20]}>
             <Col xs={24} xl={12}>
                 <Card title="输入表达式" className="panel-card">
-                    <div className="formula-preset-grid">
-                        {examples.map((item) => (
-                            <button
-                                key={item}
-                                type="button"
-                                className="formula-preset"
-                                onClick={() => setLatex(item)}
-                                aria-label={`选择示例公式 ${item}`}
-                            >
-                                <LatexText value={item} mathOnly/>
-                            </button>
-                        ))}
-                    </div>
+                    <Collapse
+                        ghost
+                        className="formula-preset-collapse"
+                        items={[
+                            {
+                                key: 'examples',
+                                label: '示例公式',
+                                children: (
+                                    <div className="formula-preset-grid">
+                                        {examples.map((item) => (
+                                            <button
+                                                key={item}
+                                                type="button"
+                                                className="formula-preset"
+                                                onClick={() => setLatex(item)}
+                                                aria-label={`选择示例公式 ${item}`}
+                                            >
+                                                <LatexText value={item} mathOnly/>
+                                            </button>
+                                        ))}
+                                    </div>
+                                ),
+                            },
+                        ]}
+                    />
                     <LabeledBlock label="公式编辑器">
                         <MathInput value={latex} onChange={setLatex}/>
                     </LabeledBlock>
+                    {matrixInfo && (
+                        <div className="matrix-action-panel">
+                            <Flex justify="space-between" align="center" gap={12} wrap="wrap">
+                                <Space direction="vertical" size={0}>
+                                    <Text strong>矩阵操作</Text>
+                                    <Text type="secondary">
+                                        {matrixInfo.rowCount} 行 × {matrixInfo.columnCount} 列
+                                    </Text>
+                                </Space>
+                                <Space wrap>
+                                    {(Object.keys(matrixActionLabel) as MatrixAction[]).map((action) => (
+                                        <Button
+                                            key={action}
+                                            onClick={() => calculateMatrixAction(action)}
+                                            loading={loading}
+                                        >
+                                            {matrixActionLabel[action]}
+                                        </Button>
+                                    ))}
+                                </Space>
+                            </Flex>
+                        </div>
+                    )}
                     <Button
                         type="primary"
                         icon={<CalculatorOutlined/>}
