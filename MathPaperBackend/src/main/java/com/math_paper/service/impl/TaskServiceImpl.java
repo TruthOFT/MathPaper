@@ -326,6 +326,7 @@ public class TaskServiceImpl implements TaskService {
                 Long count = studentAnswerMapper.selectCount(new LambdaQueryWrapper<StudentAnswer>()
                         .eq(StudentAnswer::getTaskStudentId, ts.getId())
                         .eq(StudentAnswer::getPaperQuestionId, q.getId())
+                        .eq(StudentAnswer::getAttemptNo, 1)
                         .eq(StudentAnswer::getIsDelete, 0));
                 if (count > 0) {
                     attemptCount++;
@@ -333,6 +334,7 @@ public class TaskServiceImpl implements TaskService {
                             .eq(StudentAnswer::getTaskStudentId, ts.getId())
                             .eq(StudentAnswer::getPaperQuestionId, q.getId())
                             .eq(StudentAnswer::getIsCorrect, 1)
+                            .eq(StudentAnswer::getAttemptNo, 1)
                             .eq(StudentAnswer::getIsDelete, 0));
                     if (correct > 0) correctCount++;
                 }
@@ -351,6 +353,7 @@ public class TaskServiceImpl implements TaskService {
                     new LambdaQueryWrapper<StudentAnswer>()
                             .eq(StudentAnswer::getTaskStudentId, ts.getId())
                             .eq(StudentAnswer::getIsCorrect, 0)
+                            .eq(StudentAnswer::getAttemptNo, 1)
                             .eq(StudentAnswer::getIsDelete, 0));
             for (StudentAnswer wa : wrongAnswers) {
                 List<com.math_paper.entity.QuestionKnowledge> qks = questionKnowledgeMapper.selectList(
