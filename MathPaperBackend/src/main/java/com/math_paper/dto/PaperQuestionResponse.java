@@ -17,6 +17,7 @@ public record PaperQuestionResponse(
         String studentAnswer,
         String judgeResult,
         BigDecimal judgeScore,
-        List<QuestionOptionResponse> options
+        List<QuestionOptionResponse> options,
+        GradingInfo gradingInfo
 ) {
 }

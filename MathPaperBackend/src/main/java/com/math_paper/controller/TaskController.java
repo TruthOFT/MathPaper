@@ -9,6 +9,7 @@ import com.math_paper.dto.PublishTaskRequest;
 import com.math_paper.dto.SubmitAnswersRequest;
 import com.math_paper.dto.SubmitResultResponse;
 import com.math_paper.dto.TaskDetailResponse;
+import com.math_paper.dto.TaskStatisticsResponse;
 import com.math_paper.dto.TaskStudentResponse;
 import com.math_paper.dto.TaskSummaryResponse;
 import com.math_paper.service.TaskService;
@@ -57,5 +58,11 @@ public class TaskController {
     public Result<SubmitResultResponse> submit(@RequestBody SubmitAnswersRequest request, HttpSession session) {
         AuthUserResponse student = SessionUtil.requireRole(session, "student");
         return RestUtil.success(taskService.submit(request, student));
+    }
+
+    @GetMapping("/{taskId}/statistics")
+    public Result<TaskStatisticsResponse> statistics(@PathVariable Long taskId, HttpSession session) {
+        AuthUserResponse teacher = SessionUtil.requireRole(session, "teacher");
+        return RestUtil.success(taskService.statistics(taskId, teacher));
     }
 }
