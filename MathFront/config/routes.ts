@@ -99,6 +99,14 @@ export default [
     component: './questions',
   },
   {
+    path: '/students',
+    name: '学生管理',
+    locale: false,
+    icon: 'team',
+    access: 'canTeacher',
+    component: './students',
+  },
+  {
     path: '/papers',
     name: '组卷',
     locale: false,

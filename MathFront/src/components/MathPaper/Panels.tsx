@@ -133,7 +133,11 @@ type ManualPaperItem = {
 
 type ClassInfo = {
   id: Id;
+  classCode?: string;
   className: string;
+  schoolStage?: string;
+  gradeLevel?: string;
+  status?: number;
 };
 
 type TaskSummary = {
@@ -200,6 +204,33 @@ type DashboardSummary = {
   metrics: DashboardMetric[];
   recentTasks: TaskSummary[];
   weakKnowledgePoints: WeakKnowledgePoint[];
+};
+
+type StudentInfo = {
+  id: Id;
+  username: string;
+  realName: string;
+  phone?: string;
+  email?: string;
+  status: number;
+  classId?: Id | null;
+  className?: string | null;
+  studentNo?: string | null;
+  joinTime?: string | null;
+  createTime?: string | null;
+  updateTime?: string | null;
+};
+
+type StudentFormState = {
+  id?: Id;
+  username: string;
+  password?: string;
+  realName: string;
+  phone?: string;
+  email?: string;
+  status: number;
+  classId?: Id;
+  studentNo?: string;
 };
 
 type TaskStudent = {
@@ -552,73 +583,363 @@ export function DashboardPanel() {
   );
 
   return (
-    <Row gutter={[20, 20]}>
-      {(summary?.metrics ?? []).map((metric) => (
-        <Col xs={24} sm={12} xl={6} key={metric.key}>
-          <Card className="panel-card" loading={loading}>
-            <Statistic title={metric.label} value={metric.value} />
+    <Space direction="vertical" size={20} className="full-width analysis-layout">
+      <Row gutter={[16, 16]}>
+        {(summary?.metrics ?? []).map((metric) => (
+          <Col xs={24} sm={12} xl={6} key={metric.key}>
+            <Card className="panel-card analysis-metric-card" loading={loading}>
+              <Statistic title={metric.label} value={metric.value} />
+            </Card>
+          </Col>
+        ))}
+        {!summary && (
+          <>
+            {[1, 2, 3, 4].map((item) => (
+              <Col xs={24} sm={12} xl={6} key={item}>
+                <Card className="panel-card analysis-metric-card" loading />
+              </Col>
+            ))}
+          </>
+        )}
+      </Row>
+      <Row gutter={[20, 20]} align="stretch">
+        <Col xs={24} xl={15}>
+          <Card
+            title="最近作业"
+            className="panel-card analysis-section-card"
+            extra={<TeamOutlined />}
+          >
+            <List
+              loading={loading}
+              dataSource={summary?.recentTasks ?? []}
+              locale={{ emptyText: <Empty description="暂无作业" /> }}
+              renderItem={(task) => (
+                <List.Item className="analysis-task-item">
+                  <List.Item.Meta
+                    title={
+                      <Flex justify="space-between" gap={12} wrap="wrap">
+                        <Text strong>{task.taskName}</Text>
+                        <Tag color={statusColor[task.status]}>
+                          {statusLabel[task.status] || task.status}
+                        </Tag>
+                      </Flex>
+                    }
+                    description={
+                      <Space split={<Divider type="vertical" />} wrap>
+                        <Text type="secondary">
+                          截止：{task.deadlineTime || '未设置'}
+                        </Text>
+                        <Text type="secondary">
+                          得分：{task.totalScore ?? '-'}
+                        </Text>
+                      </Space>
+                    }
+                  />
+                </List.Item>
+              )}
+            />
           </Card>
         </Col>
-      ))}
-      {!summary && (
-        <Col span={24}>
-          <Card className="panel-card" loading={loading} />
+        <Col xs={24} xl={9}>
+          <Card
+            title="薄弱知识点"
+            className="panel-card analysis-section-card"
+            extra={<ExclamationCircleOutlined />}
+          >
+            <List
+              loading={loading}
+              dataSource={summary?.weakKnowledgePoints ?? []}
+              locale={{ emptyText: <Empty description="暂无薄弱知识点" /> }}
+              renderItem={(item) => (
+                <List.Item>
+                  <Space direction="vertical" className="full-width" size={6}>
+                    <Flex justify="space-between" gap={12}>
+                      <Text strong>{item.pointName}</Text>
+                      <Text type="secondary">{item.wrongCount} 错</Text>
+                    </Flex>
+                    <Progress
+                      percent={Math.round(
+                        (item.wrongCount / maxWrongCount) * 100,
+                      )}
+                      size="small"
+                    />
+                  </Space>
+                </List.Item>
+              )}
+            />
+          </Card>
         </Col>
-      )}
-      <Col xs={24} lg={14}>
-        <Card title="最近作业" className="panel-card" extra={<TeamOutlined />}>
-          <List
-            loading={loading}
-            dataSource={summary?.recentTasks ?? []}
-            locale={{ emptyText: <Empty description="暂无作业" /> }}
-            renderItem={(task) => (
-              <List.Item>
-                <List.Item.Meta
-                  title={
-                    <Space>
-                      <Text strong>{task.taskName}</Text>
-                      <Tag color={statusColor[task.status]}>
-                        {statusLabel[task.status] || task.status}
-                      </Tag>
-                    </Space>
-                  }
-                  description={`截止：${task.deadlineTime || '未设置'} / 得分：${task.totalScore ?? '-'}`}
+      </Row>
+    </Space>
+  );
+}
+
+export function StudentManagementPanel() {
+  const { message } = AntApp.useApp();
+  const [students, setStudents] = useState<StudentInfo[]>([]);
+  const [classes, setClasses] = useState<ClassInfo[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<StudentInfo | null>(null);
+  const [keyword, setKeyword] = useState('');
+  const [classId, setClassId] = useState<Id | undefined>();
+  const [form] = Form.useForm<StudentFormState>();
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (keyword.trim()) {
+        params.set('keyword', keyword.trim());
+      }
+      if (classId) {
+        params.set('classId', String(classId));
+      }
+      const query = params.toString();
+      const [studentData, classData] = await Promise.all([
+        mathRequest<StudentInfo[]>(`/api/students${query ? `?${query}` : ''}`),
+        mathRequest<ClassInfo[]>('/api/catalog/classes'),
+      ]);
+      setStudents(studentData);
+      setClasses(classData);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '学生数据加载失败');
+    } finally {
+      setLoading(false);
+    }
+  }, [classId, keyword, message]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const openCreate = () => {
+    setEditing(null);
+    form.setFieldsValue({
+      username: '',
+      password: '123456',
+      realName: '',
+      phone: '',
+      email: '',
+      status: 1,
+      classId: undefined,
+      studentNo: '',
+    });
+    setModalOpen(true);
+  };
+
+  const openEdit = (student: StudentInfo) => {
+    setEditing(student);
+    form.setFieldsValue({
+      id: student.id,
+      username: student.username,
+      password: '',
+      realName: student.realName,
+      phone: student.phone,
+      email: student.email,
+      status: student.status,
+      classId: student.classId ?? undefined,
+      studentNo: student.studentNo ?? '',
+    });
+    setModalOpen(true);
+  };
+
+  const save = async () => {
+    const values = await form.validateFields();
+    setLoading(true);
+    try {
+      await mathRequest<StudentInfo>('/api/students', {
+        method: 'POST',
+        data: {
+          ...values,
+          id: editing?.id,
+          password: values.password?.trim() || undefined,
+        },
+      });
+      message.success('学生已保存');
+      setModalOpen(false);
+      await load();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '保存失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const remove = async (student: StudentInfo) => {
+    setLoading(true);
+    try {
+      await mathRequest<void>(`/api/students/${student.id}`, {
+        method: 'DELETE',
+      });
+      message.success('学生已删除');
+      await load();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '删除失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const columns: TableColumnsType<StudentInfo> = [
+    {
+      title: '姓名',
+      dataIndex: 'realName',
+      render: (value: string, row) => (
+        <Space direction="vertical" size={0}>
+          <Text strong>{value}</Text>
+          <Text type="secondary">{row.username}</Text>
+        </Space>
+      ),
+    },
+    { title: '学号', dataIndex: 'studentNo', width: 120, render: (v) => v || '-' },
+    {
+      title: '班级',
+      dataIndex: 'className',
+      render: (value) => value || <Text type="secondary">未分班</Text>,
+    },
+    {
+      title: '联系方式',
+      render: (_, row) => (
+        <Space direction="vertical" size={0}>
+          <Text>{row.phone || '-'}</Text>
+          <Text type="secondary">{row.email || '-'}</Text>
+        </Space>
+      ),
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      width: 90,
+      render: (value: number) => (
+        <Tag color={value === 1 ? 'success' : 'default'}>
+          {value === 1 ? '启用' : '停用'}
+        </Tag>
+      ),
+    },
+    {
+      title: '操作',
+      width: 150,
+      render: (_, row) => (
+        <Space>
+          <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(row)} />
+          <Popconfirm title="删除该学生？" onConfirm={() => remove(row)}>
+            <Button size="small" danger icon={<DeleteOutlined />} />
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
+
+  return (
+    <Space direction="vertical" size={20} className="full-width">
+      <Card className="panel-card">
+        <Flex justify="space-between" align="center" gap={16} wrap="wrap">
+          <Space wrap>
+            <Input.Search
+              allowClear
+              placeholder="搜索账号或姓名"
+              style={{ width: 240 }}
+              onSearch={(value) => setKeyword(value)}
+            />
+            <Select
+              allowClear
+              placeholder="按班级筛选"
+              style={{ width: 220 }}
+              value={classId}
+              onChange={setClassId}
+              options={classes.map((item) => ({
+                label: item.className,
+                value: item.id,
+              }))}
+            />
+          </Space>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+            新增学生
+          </Button>
+        </Flex>
+      </Card>
+      <Card title="学生列表" className="panel-card" extra={<TeamOutlined />}>
+        <Table
+          rowKey={(row) => String(row.id)}
+          columns={columns}
+          dataSource={students}
+          loading={loading}
+          pagination={{ pageSize: 8 }}
+        />
+      </Card>
+      <Modal
+        title={editing ? '编辑学生' : '新增学生'}
+        open={modalOpen}
+        onOk={save}
+        onCancel={() => setModalOpen(false)}
+        confirmLoading={loading}
+        destroyOnHidden
+      >
+        <Form form={form} layout="vertical" initialValues={{ status: 1 }}>
+          <Form.Item
+            name="username"
+            label="登录账号"
+            rules={[{ required: true, message: '请输入登录账号' }]}
+          >
+            <Input placeholder="student_zhangsan" />
+          </Form.Item>
+          <Form.Item
+            name="realName"
+            label="学生姓名"
+            rules={[{ required: true, message: '请输入学生姓名' }]}
+          >
+            <Input placeholder="张三" />
+          </Form.Item>
+          <Form.Item
+            name="password"
+            label={editing ? '重置密码' : '初始密码'}
+            tooltip={editing ? '留空则不修改密码' : undefined}
+          >
+            <Input.Password placeholder={editing ? '留空不修改' : '123456'} />
+          </Form.Item>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="classId" label="班级">
+                <Select
+                  allowClear
+                  placeholder="选择班级"
+                  options={classes.map((item) => ({
+                    label: item.className,
+                    value: item.id,
+                  }))}
                 />
-              </List.Item>
-            )}
-          />
-        </Card>
-      </Col>
-      <Col xs={24} lg={10}>
-        <Card
-          title="薄弱知识点"
-          className="panel-card"
-          extra={<ExclamationCircleOutlined />}
-        >
-          <List
-            loading={loading}
-            dataSource={summary?.weakKnowledgePoints ?? []}
-            locale={{ emptyText: <Empty description="暂无薄弱知识点" /> }}
-            renderItem={(item) => (
-              <List.Item>
-                <Space direction="vertical" className="full-width" size={4}>
-                  <Flex justify="space-between">
-                    <Text strong>{item.pointName}</Text>
-                    <Text type="secondary">{item.wrongCount} 错</Text>
-                  </Flex>
-                  <Progress
-                    percent={Math.round(
-                      (item.wrongCount / maxWrongCount) * 100,
-                    )}
-                    size="small"
-                  />
-                </Space>
-              </List.Item>
-            )}
-          />
-        </Card>
-      </Col>
-    </Row>
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="studentNo" label="班内学号">
+                <Input placeholder="2026001" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="phone" label="手机号">
+                <Input placeholder="13800000000" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="email" label="邮箱">
+                <Input placeholder="student@school.edu" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item name="status" label="状态">
+            <Segmented
+              options={[
+                { label: '启用', value: 1 },
+                { label: '停用', value: 0 },
+              ]}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </Space>
   );
 }
 

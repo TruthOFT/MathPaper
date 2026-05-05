@@ -42,6 +42,23 @@
     background: #ffffff;
 }
 
+.analysis-layout .panel-card {
+    margin-bottom: 0;
+}
+
+.analysis-metric-card,
+.analysis-section-card {
+    height: 100%;
+}
+
+.analysis-section-card .ant-card-body {
+    min-height: 360px;
+}
+
+.analysis-task-item {
+    padding: 14px 0 !important;
+}
+
 .sticky-card {
     position: sticky;
     top: 92px;
