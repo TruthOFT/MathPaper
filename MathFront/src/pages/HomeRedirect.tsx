@@ -4,5 +4,5 @@ export default function HomeRedirect() {
   const { initialState } = useModel('@@initialState');
   const roleType = initialState?.currentUser?.roleType || initialState?.currentUser?.access;
 
-  return <Navigate to={roleType === 'student' ? '/tasks' : '/dashboard/analysis'} replace />;
+  return <Navigate to={roleType === 'student' ? '/tasks' : '/analysis'} replace />;
 }

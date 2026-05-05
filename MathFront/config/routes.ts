@@ -65,22 +65,24 @@ export default [
     ],
   },
   {
-    path: '/dashboard',
-    name: 'dashboard',
-    icon: 'dashboard',
+    path: '/analysis',
+    name: '分析页',
+    locale: false,
+    icon: 'barChart',
     access: 'canTeacher',
-    routes: [
-      {
-        path: '/dashboard',
-        redirect: '/dashboard/analysis',
-      },
-      {
-        name: 'analysis',
-        icon: 'barChart',
-        path: '/dashboard/analysis',
-        component: './dashboard/analysis',
-      },
-    ],
+    component: './dashboard/analysis',
+  },
+  {
+    path: '/dashboard',
+    access: 'canTeacher',
+    hideInMenu: true,
+    redirect: '/analysis',
+  },
+  {
+    path: '/dashboard/analysis',
+    access: 'canTeacher',
+    hideInMenu: true,
+    redirect: '/analysis',
   },
   {
     path: '/calculator',
@@ -98,10 +100,28 @@ export default [
   },
   {
     path: '/papers',
-    name: 'papers',
+    name: '组卷',
+    locale: false,
     icon: 'fileText',
     access: 'canTeacher',
-    component: './papers',
+    routes: [
+      {
+        path: '/papers',
+        redirect: '/papers/auto',
+      },
+      {
+        path: '/papers/auto',
+        name: '自动组卷',
+        locale: false,
+        component: './papers/auto',
+      },
+      {
+        path: '/papers/manual',
+        name: '手动组卷',
+        locale: false,
+        component: './papers/manual',
+      },
+    ],
   },
   {
     path: '/tasks',

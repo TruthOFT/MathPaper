@@ -125,6 +125,12 @@ type Paper = {
   totalScore: number;
 };
 
+type ManualPaperItem = {
+  questionId: Id;
+  score: number;
+  sectionName: string;
+};
+
 type ClassInfo = {
   id: Id;
   className: string;
@@ -989,10 +995,25 @@ function QuestionEditor({
   onReset: () => void;
   loading: boolean;
 }) {
+  const [stemFormula, setStemFormula] = useState('');
+
   const updateOption = (index: number, patch: Partial<QuestionOption>) => {
     const options = [...value.options];
     options[index] = { ...options[index], ...patch };
     onChange({ ...value, options });
+  };
+
+  const insertStemFormula = (displayMode = false) => {
+    const formula = stemFormula.trim();
+    if (!formula) {
+      return;
+    }
+    const wrappedFormula = displayMode ? `\\[${formula}\\]` : `\\(${formula}\\)`;
+    onChange({
+      ...value,
+      stemContent: `计算：${wrappedFormula}`,
+    });
+    setStemFormula('');
   };
 
   return (
@@ -1042,6 +1063,29 @@ function QuestionEditor({
             }
             rows={4}
           />
+          <div className="stem-mathlive">
+            <MathInput
+              value={stemFormula}
+              onChange={setStemFormula}
+              placeholder="题干公式"
+            />
+            <Space wrap>
+              <Button
+                icon={<PlusOutlined />}
+                onClick={() => insertStemFormula(false)}
+                disabled={!stemFormula.trim()}
+              >
+                插入行内公式
+              </Button>
+              <Button
+                icon={<PlusOutlined />}
+                onClick={() => insertStemFormula(true)}
+                disabled={!stemFormula.trim()}
+              >
+                插入独立公式
+              </Button>
+            </Space>
+          </div>
           <div className="stem-preview">
             <Text type="secondary">题干预览</Text>
             <div className="latex-preview">
@@ -1733,6 +1777,364 @@ export function PaperManager() {
         </Form>
       </Modal>
     </>
+  );
+}
+
+export function ManualPaperManager() {
+  const { message } = AntApp.useApp();
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [papers, setPapers] = useState<Paper[]>([]);
+  const [classes, setClasses] = useState<ClassInfo[]>([]);
+  const [paperName, setPaperName] = useState('手动组卷试卷');
+  const [taskName, setTaskName] = useState('手动组卷作业');
+  const [paperId, setPaperId] = useState<Id | undefined>();
+  const [classId, setClassId] = useState<Id | undefined>();
+  const [questionType, setQuestionType] = useState('all');
+  const [selectedQuestionIds, setSelectedQuestionIds] = useState<string[]>([]);
+  const [selectedScores, setSelectedScores] = useState<Record<string, number>>(
+    {},
+  );
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [questionData, paperData, classData] = await Promise.all([
+        mathRequest<Question[]>('/api/questions'),
+        mathRequest<Paper[]>('/api/papers'),
+        mathRequest<ClassInfo[]>('/api/catalog/classes'),
+      ]);
+      setQuestions(questionData);
+      setPapers(paperData);
+      setClasses(classData);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '手动组卷数据加载失败');
+    } finally {
+      setLoading(false);
+    }
+  }, [message]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const filteredQuestions = useMemo(
+    () =>
+      questions.filter(
+        (question) =>
+          questionType === 'all' || question.questionType === questionType,
+      ),
+    [questionType, questions],
+  );
+
+  const selectedQuestions = useMemo(
+    () =>
+      selectedQuestionIds
+        .map((id) => questions.find((question) => String(question.id) === id))
+        .filter((question): question is Question => Boolean(question)),
+    [questions, selectedQuestionIds],
+  );
+
+  const totalScore = selectedQuestions.reduce(
+    (sum, question) =>
+      sum + Number(selectedScores[String(question.id)] ?? question.defaultScore),
+    0,
+  );
+
+  const updateSelectedScore = (questionId: Id, score: number) => {
+    setSelectedScores({
+      ...selectedScores,
+      [String(questionId)]: score,
+    });
+  };
+
+  const removeSelectedQuestion = (questionId: Id) => {
+    const id = String(questionId);
+    setSelectedQuestionIds(selectedQuestionIds.filter((item) => item !== id));
+  };
+
+  const generateManualPaper = async () => {
+    if (!paperName.trim()) {
+      message.warning('试卷名称不能为空');
+      return;
+    }
+    if (!selectedQuestions.length) {
+      message.warning('请至少选择一道题');
+      return;
+    }
+    const items: ManualPaperItem[] = selectedQuestions.map((question) => ({
+      questionId: question.id,
+      score: Number(
+        selectedScores[String(question.id)] ?? question.defaultScore ?? 10,
+      ),
+      sectionName: questionTypeLabel[question.questionType] || '题目',
+    }));
+    if (items.some((item) => item.score <= 0)) {
+      message.warning('题目分值必须大于 0');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const paper = await mathRequest<Paper>('/api/papers/manual-generate', {
+        method: 'POST',
+        body: JSON.stringify({ paperName, items }),
+      });
+      setPaperId(paper.id);
+      message.success('手动组卷已生成试卷');
+      setSelectedQuestionIds([]);
+      setSelectedScores({});
+      await load();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '手动组卷失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const publish = async () => {
+    if (!paperId || !classId) {
+      message.warning('请选择试卷和班级');
+      return;
+    }
+    if (!taskName.trim()) {
+      message.warning('作业名称不能为空');
+      return;
+    }
+    setLoading(true);
+    try {
+      await mathRequest<TaskSummary>('/api/tasks/publish', {
+        method: 'POST',
+        body: JSON.stringify({ paperId, taskName, classId, deadlineDays: 7 }),
+      });
+      message.success('作业已发布');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '发布失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const columns: TableColumnsType<Question> = [
+    {
+      title: '题目',
+      dataIndex: 'stemContent',
+      render: (value: string, row) => (
+        <Space direction="vertical" size={2}>
+          <Text strong>{row.questionCode}</Text>
+          <LatexText value={value} />
+        </Space>
+      ),
+    },
+    {
+      title: '题型',
+      dataIndex: 'questionType',
+      width: 96,
+      render: (value: string) => questionTypeLabel[value] || value,
+    },
+    {
+      title: '默认分',
+      dataIndex: 'defaultScore',
+      width: 92,
+      render: (value: number) => `${value} 分`,
+    },
+    {
+      title: '答案',
+      dataIndex: 'answerValue',
+      width: 160,
+      render: (value: string, row) =>
+        isChoiceQuestion(row.questionType) ? (
+          <Text strong>{value}</Text>
+        ) : (
+          <LatexText value={value} mathOnly />
+        ),
+    },
+  ];
+
+  return (
+    <Row gutter={[20, 20]}>
+      <Col xs={24} xl={16}>
+        <Card
+          title="题库选题"
+          className="panel-card"
+          extra={<Tag color="blue">已选 {selectedQuestions.length} 题</Tag>}
+        >
+          <Form layout="vertical">
+            <Row gutter={12}>
+              <Col xs={24} md={14}>
+                <Form.Item label="试卷名称">
+                  <Input
+                    value={paperName}
+                    onChange={(event) => setPaperName(event.target.value)}
+                  />
+                </Form.Item>
+              </Col>
+              <Col xs={24} md={10}>
+                <Form.Item label="题型筛选">
+                  <Select
+                    value={questionType}
+                    onChange={setQuestionType}
+                    options={[
+                      { label: '全部题型', value: 'all' },
+                      { label: '计算题', value: 'calculation' },
+                      { label: '填空题', value: 'fill_blank' },
+                      { label: '选择题', value: 'single_choice' },
+                    ]}
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+          </Form>
+          <Table
+            rowKey={(row) => String(row.id)}
+            columns={columns}
+            dataSource={filteredQuestions}
+            loading={loading}
+            pagination={{ pageSize: 6 }}
+            rowSelection={{
+              selectedRowKeys: selectedQuestionIds,
+              onChange: (keys) => {
+                const ids = keys.map(String);
+                setSelectedQuestionIds(ids);
+                setSelectedScores((current) => {
+                  const next = { ...current };
+                  ids.forEach((id) => {
+                    const question = questions.find(
+                      (item) => String(item.id) === id,
+                    );
+                    if (question && next[id] === undefined) {
+                      next[id] = Number(question.defaultScore ?? 10);
+                    }
+                  });
+                  return next;
+                });
+              },
+            }}
+          />
+        </Card>
+      </Col>
+      <Col xs={24} xl={8}>
+        <Card
+          title="已选题目"
+          className="panel-card sticky-card"
+          extra={<Tag color="green">{totalScore} 分</Tag>}
+        >
+          <List
+            dataSource={selectedQuestions}
+            locale={{ emptyText: <Empty description="请从题库勾选题目" /> }}
+            renderItem={(question, index) => (
+              <List.Item
+                actions={[
+                  <Button
+                    key="remove"
+                    size="small"
+                    danger
+                    icon={<DeleteOutlined />}
+                    onClick={() => removeSelectedQuestion(question.id)}
+                  />,
+                ]}
+              >
+                <List.Item.Meta
+                  title={`第 ${index + 1} 题 / ${
+                    questionTypeLabel[question.questionType] || question.questionType
+                  }`}
+                  description={
+                    <Space direction="vertical" size={8} className="full-width">
+                      <LatexText value={question.stemContent} />
+                      <InputNumber
+                        min={0.5}
+                        step={0.5}
+                        value={
+                          selectedScores[String(question.id)] ??
+                          Number(question.defaultScore ?? 10)
+                        }
+                        onChange={(score) =>
+                          updateSelectedScore(question.id, Number(score ?? 0))
+                        }
+                        addonAfter="分"
+                        className="full-width"
+                      />
+                    </Space>
+                  }
+                />
+              </List.Item>
+            )}
+          />
+          <Button
+            type="primary"
+            icon={<FileTextOutlined />}
+            loading={loading}
+            onClick={generateManualPaper}
+            disabled={!selectedQuestions.length}
+            block
+          >
+            生成试卷
+          </Button>
+        </Card>
+        <Card title="已生成试卷" className="panel-card">
+          <List
+            loading={loading}
+            dataSource={papers}
+            locale={{ emptyText: <Empty description="暂无试卷" /> }}
+            renderItem={(paper) => (
+              <List.Item
+                actions={[
+                  <Button key="use" onClick={() => setPaperId(paper.id)}>
+                    用于发布
+                  </Button>,
+                ]}
+              >
+                <List.Item.Meta
+                  title={<Text strong>{paper.paperName}</Text>}
+                  description={`${paper.paperCode} / ${paper.questionCount} 题 / ${paper.totalScore} 分`}
+                />
+              </List.Item>
+            )}
+          />
+        </Card>
+        <Card title="发布作业" className="panel-card">
+          <Form layout="vertical">
+            <Form.Item label="作业名称">
+              <Input
+                value={taskName}
+                onChange={(event) => setTaskName(event.target.value)}
+              />
+            </Form.Item>
+            <Form.Item label="试卷">
+              <Select
+                value={paperId}
+                onChange={setPaperId}
+                placeholder="选择试卷"
+                options={papers.map((paper) => ({
+                  label: `${paper.paperName} / ${paper.questionCount}题`,
+                  value: paper.id,
+                }))}
+              />
+            </Form.Item>
+            <Form.Item label="班级">
+              <Select
+                value={classId}
+                onChange={setClassId}
+                placeholder="选择班级"
+                options={classes.map((item) => ({
+                  label: item.className,
+                  value: item.id,
+                }))}
+              />
+            </Form.Item>
+            <Button
+              type="primary"
+              icon={<SendOutlined />}
+              loading={loading}
+              onClick={publish}
+              block
+            >
+              发布作业
+            </Button>
+          </Form>
+        </Card>
+      </Col>
+    </Row>
   );
 }
 

@@ -5,6 +5,7 @@ import lombok.RequiredArgsConstructor;
 import com.math_paper.common.RestUtil;
 import com.math_paper.common.Result;
 import com.math_paper.dto.AutoGeneratePaperRequest;
+import com.math_paper.dto.ManualGeneratePaperRequest;
 import com.math_paper.dto.PaperResponse;
 import com.math_paper.dto.PaperRuleRequest;
 import com.math_paper.entity.PaperRule;
@@ -63,5 +64,11 @@ public class PaperController {
     public Result<PaperResponse> autoGenerate(@RequestBody AutoGeneratePaperRequest request, HttpSession session) {
         SessionUtil.requireRole(session, "teacher");
         return RestUtil.success(paperService.autoGenerate(request));
+    }
+
+    @PostMapping("/manual-generate")
+    public Result<PaperResponse> manualGenerate(@RequestBody ManualGeneratePaperRequest request, HttpSession session) {
+        SessionUtil.requireRole(session, "teacher");
+        return RestUtil.success(paperService.manualGenerate(request));
     }
 }

@@ -1,6 +1,7 @@
 package com.math_paper.service;
 
 import com.math_paper.dto.AutoGeneratePaperRequest;
+import com.math_paper.dto.ManualGeneratePaperRequest;
 import com.math_paper.dto.PaperResponse;
 import com.math_paper.dto.PaperRuleRequest;
 import com.math_paper.entity.PaperRule;
@@ -19,4 +20,6 @@ public interface PaperService {
     List<PaperResponse> listPapers();
 
     PaperResponse autoGenerate(AutoGeneratePaperRequest request);
+
+    PaperResponse manualGenerate(ManualGeneratePaperRequest request);
 }

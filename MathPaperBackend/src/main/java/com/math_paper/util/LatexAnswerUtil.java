@@ -36,6 +36,7 @@ public final class LatexAnswerUtil {
                 .replace("\\right", "")
                 .replace("\\cdot", "*")
                 .replace("\\times", "*")
+                .replace("∗", "*")
                 .replace("×", "*")
                 .replace("·", "*")
                 .replace("÷", "/")

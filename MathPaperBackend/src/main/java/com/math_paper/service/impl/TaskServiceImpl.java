@@ -40,6 +40,7 @@ import com.math_paper.mapper.UserAccountMapper;
 import com.math_paper.mapper.WrongQuestionBookMapper;
 import com.math_paper.service.TaskService;
 import com.math_paper.util.LatexAnswerUtil;
+import com.math_paper.util.LatexToSymjaUtil;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -231,10 +232,26 @@ public class TaskServiceImpl implements TaskService {
             String answerValue = LatexAnswerUtil.normalize(rawLatex);
             String standardValue = LatexAnswerUtil.normalize(question.getAnswerValueSnapshot());
             boolean correct = !standardValue.isBlank() && standardValue.equals(answerValue);
+            boolean symjaEquivalent = false;
+            String symjaStandardExpr = null;
+            String symjaStudentExpr = null;
+
+            // exact_match 失败时，尝试 Symja 符号等价判题
+            if (!correct && !rawLatex.isBlank()) {
+                symjaStandardExpr = LatexToSymjaUtil.tryConvert(question.getAnswerValueSnapshot());
+                symjaStudentExpr = LatexToSymjaUtil.tryConvert(rawLatex);
+                if (symjaStandardExpr != null && symjaStudentExpr != null) {
+                    symjaEquivalent = LatexToSymjaUtil.areEquivalent(rawLatex, question.getAnswerValueSnapshot());
+                    if (symjaEquivalent) {
+                        correct = true;
+                    }
+                }
+            }
+
             BigDecimal judgeScore = correct ? question.getScore() : BigDecimal.ZERO;
             totalScore = totalScore.add(judgeScore);
-            StudentAnswer answer = upsertStudentAnswer(taskStudent, question, rawLatex, answerValue, correct, judgeScore, standardValue);
-            saveJudgeRecord(answer, question, rawLatex, answerValue, correct, judgeScore, standardValue);
+            StudentAnswer answer = upsertStudentAnswer(taskStudent, question, rawLatex, answerValue, correct, judgeScore, standardValue, symjaEquivalent);
+            saveJudgeRecord(answer, question, rawLatex, answerValue, correct, judgeScore, standardValue, symjaEquivalent, symjaStandardExpr, symjaStudentExpr);
             if (!correct) {
                 saveWrongQuestion(taskStudent, question, answer);
             }
@@ -382,7 +399,7 @@ public class TaskServiceImpl implements TaskService {
                 scoreDistribution, perQuestionStats, weakKps);
     }
 
-    private StudentAnswer upsertStudentAnswer(HomeworkTaskStudent taskStudent, PaperQuestion question, String rawLatex, String answerValue, boolean correct, BigDecimal judgeScore, String standardValue) {
+    private StudentAnswer upsertStudentAnswer(HomeworkTaskStudent taskStudent, PaperQuestion question, String rawLatex, String answerValue, boolean correct, BigDecimal judgeScore, String standardValue, boolean symjaEquivalent) {
         StudentAnswer answer = studentAnswerMapper.selectOne(new LambdaQueryWrapper<StudentAnswer>()
                 .eq(StudentAnswer::getTaskStudentId, taskStudent.getId())
                 .eq(StudentAnswer::getPaperQuestionId, question.getId())
@@ -404,7 +421,11 @@ public class TaskServiceImpl implements TaskService {
         answer.setJudgeResult(correct ? "correct" : "wrong");
         answer.setJudgeScore(judgeScore);
         answer.setIsCorrect(correct ? 1 : 0);
-        answer.setFeedbackContent(correct ? "答案正确。" : "字符串比对不一致，标准答案是 " + standardValue + "。");
+        if (correct && symjaEquivalent) {
+            answer.setFeedbackContent("表达式数学等价，判为正确。（Symja符号验算通过）");
+        } else {
+            answer.setFeedbackContent(correct ? "答案正确。" : "字符串比对不一致，标准答案是 " + standardValue + "。");
+        }
         answer.setSubmitTime(LocalDateTime.now());
         answer.setAutoCorrectTime(LocalDateTime.now());
         answer.setReviewerId(0L);
@@ -416,21 +437,27 @@ public class TaskServiceImpl implements TaskService {
         return answer;
     }
 
-    private void saveJudgeRecord(StudentAnswer answer, PaperQuestion question, String rawLatex, String answerValue, boolean correct, BigDecimal judgeScore, String standardValue) {
+    private void saveJudgeRecord(StudentAnswer answer, PaperQuestion question, String rawLatex, String answerValue, boolean correct, BigDecimal judgeScore, String standardValue, boolean symjaEquivalent, String symjaStandardExpr, String symjaStudentExpr) {
         AnswerJudgeRecord record = new AnswerJudgeRecord();
         record.setStudentAnswerId(answer.getId());
         record.setQuestionId(question.getQuestionId());
         record.setPaperQuestionId(question.getId());
-        record.setJudgeMode("exact_match");
+        record.setJudgeMode(symjaEquivalent ? "symja_equivalent" : "exact_match");
         record.setStandardLatex(question.getAnswerContentSnapshot());
         record.setStudentLatex(LatexAnswerUtil.display(answerValue));
         record.setAnswerValueType("latex");
         record.setStandardAnswerValue(standardValue);
         record.setStudentAnswerValue(answerValue);
-        record.setCalculateResult("standardAnswerValue=" + standardValue + "; studentAnswerValue=" + answerValue);
+        if (symjaEquivalent) {
+            record.setStandardExpr(symjaStandardExpr);
+            record.setStudentExpr(symjaStudentExpr);
+            record.setCalculateResult("symja: Simplify[" + symjaStudentExpr + "-(" + symjaStandardExpr + ")] = 0, 表达式数学等价");
+        } else {
+            record.setCalculateResult("standardAnswerValue=" + standardValue + "; studentAnswerValue=" + answerValue);
+        }
         record.setJudgeResult(correct ? "correct" : "wrong");
         record.setJudgeScore(judgeScore);
-        record.setEquivalent(correct ? 1 : 0);
+        record.setEquivalent(symjaEquivalent ? 1 : (correct ? 1 : 0));
         record.setIsDelete(0);
         answerJudgeRecordMapper.insert(record);
     }

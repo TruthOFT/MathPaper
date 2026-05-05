@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import com.math_paper.common.ErrorCode;
 import com.math_paper.dto.AutoGeneratePaperRequest;
+import com.math_paper.dto.ManualGeneratePaperRequest;
 import com.math_paper.dto.PaperResponse;
 import com.math_paper.dto.PaperRuleRequest;
 import com.math_paper.entity.KnowledgePoint;
@@ -165,6 +166,80 @@ public class PaperServiceImpl implements PaperService {
         return toResponse(paper);
     }
 
+    @Transactional(rollbackFor = Exception.class)
+    @Override
+    public PaperResponse manualGenerate(ManualGeneratePaperRequest request) {
+        if (request == null || request.items() == null || request.items().isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAM_ERROR, "请至少选择一道题目");
+        }
+
+        Paper paper = new Paper();
+        paper.setPaperCode("PAPER_" + System.currentTimeMillis());
+        paper.setPaperName(isBlank(request.paperName()) ? "手动组卷试卷" : request.paperName());
+        paper.setRuleId(null);
+        paper.setPaperType("homework");
+        paper.setSubjectCode("math");
+        paper.setSchoolStage("custom");
+        paper.setGradeLevel("custom");
+        paper.setSourceType("manual");
+        paper.setDifficulty(new BigDecimal("0.50"));
+        paper.setQuestionCount(request.items().size());
+        paper.setTotalScore(request.items().stream()
+                .map(item -> item == null || item.score() == null ? BigDecimal.ZERO : item.score())
+                .reduce(BigDecimal.ZERO, BigDecimal::add));
+        paper.setDurationMinutes(Math.max(20, request.items().size() * 5));
+        paper.setStatus(1);
+        paper.setRemark("手动组卷生成");
+        paper.setIsDelete(0);
+        paperMapper.insert(paper);
+
+        Set<Long> usedQuestionIds = new HashSet<>();
+        int questionNo = 1;
+        for (ManualGeneratePaperRequest.Item item : request.items()) {
+            if (item == null || item.questionId() == null) {
+                throw new BusinessException(ErrorCode.PARAM_ERROR, "题目不能为空");
+            }
+            if (!usedQuestionIds.add(item.questionId())) {
+                throw new BusinessException(ErrorCode.PARAM_ERROR, "不能重复选择同一道题");
+            }
+            BigDecimal score = item.score() == null ? BigDecimal.ZERO : item.score();
+            if (score.compareTo(BigDecimal.ZERO) <= 0) {
+                throw new BusinessException(ErrorCode.PARAM_ERROR, "题目分值必须大于 0");
+            }
+
+            Question question = questionMapper.selectById(item.questionId());
+            if (question == null || question.getIsDelete() != null && question.getIsDelete() == 1) {
+                throw new BusinessException(ErrorCode.NOT_FOUND, "题目不存在");
+            }
+            if (question.getStatus() != null && question.getStatus() != 1) {
+                throw new BusinessException(ErrorCode.BUSINESS_ERROR, "题目未启用");
+            }
+
+            PaperQuestion paperQuestion = new PaperQuestion();
+            paperQuestion.setPaperId(paper.getId());
+            paperQuestion.setQuestionId(question.getId());
+            paperQuestion.setTemplateId(question.getTemplateId());
+            paperQuestion.setSectionName(isBlank(item.sectionName()) ? defaultSectionName(question.getQuestionType()) : item.sectionName());
+            paperQuestion.setQuestionNo(questionNo);
+            paperQuestion.setQuestionType(question.getQuestionType());
+            paperQuestion.setScore(score);
+            paperQuestion.setSortNo(questionNo);
+            paperQuestion.setDifficultySnapshot(question.getDifficulty());
+            paperQuestion.setStemContentSnapshot(question.getStemContent());
+            paperQuestion.setAnswerContentSnapshot(question.getAnswerContent());
+            paperQuestion.setAnswerValueTypeSnapshot("latex");
+            paperQuestion.setAnswerValueSnapshot(question.getAnswerValue());
+            paperQuestion.setAnswerExprSnapshot(question.getAnswerExpr());
+            paperQuestion.setAnalysisContentSnapshot(question.getAnalysisContent());
+            paperQuestion.setIsDelete(0);
+            paperQuestionMapper.insert(paperQuestion);
+            copyOptions(question.getId(), paperQuestion.getId());
+            questionNo++;
+        }
+
+        return toResponse(paper);
+    }
+
     private List<SectionPick> pickQuestions(JsonNode sections, BigDecimal targetDifficulty) {
         if (!sections.isArray()) {
             throw new BusinessException(ErrorCode.PARAM_ERROR, "组卷规则 sections 格式错误");
@@ -306,6 +381,14 @@ public class PaperServiceImpl implements PaperService {
 
     private PaperResponse toResponse(Paper paper) {
         return new PaperResponse(paper.getId(), paper.getPaperCode(), paper.getPaperName(), paper.getQuestionCount(), paper.getTotalScore());
+    }
+
+    private String defaultSectionName(String questionType) {
+        return switch (questionType == null ? "" : questionType) {
+            case "single_choice" -> "选择题";
+            case "fill_blank" -> "填空题";
+            default -> "计算题";
+        };
     }
 
     private boolean isBlank(String value) {

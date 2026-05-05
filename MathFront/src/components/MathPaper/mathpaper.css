@@ -188,6 +188,12 @@
     margin-top: 10px;
 }
 
+.stem-mathlive {
+    display: grid;
+    gap: 8px;
+    margin-top: 10px;
+}
+
 .large-preview {
     display: grid;
     min-height: 120px;
